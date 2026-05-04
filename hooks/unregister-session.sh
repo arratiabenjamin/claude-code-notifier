@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SessionEnd hook: remove the session from the state when it ends cleanly.
+# SessionEnd hook: mark the session as `ended` (with timestamp) instead of deleting it,
+# so it stays visible in the SketchyBar popup until the TTL purge in cleanup-sessions.sh.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,9 +23,17 @@ fi
 
 now_iso="$(date -u +%FT%TZ)"
 
-_do_unregister() {
+_do_mark_ended() {
   ensure_state_file || return 1
-  jq_mutate 'del(.sessions[$sid]) | .updated_at = $now' \
+  jq_mutate '
+    if .sessions[$sid] then
+      .sessions[$sid].status = "ended"
+      | .sessions[$sid].ended_at = $now
+      | .updated_at = $now
+    else
+      .
+    end
+  ' \
     --arg sid "$session_id" \
     --arg now "$now_iso" || {
       log "unregister-session: jq_mutate failed for sid=$session_id"
@@ -33,7 +42,11 @@ _do_unregister() {
   return 0
 }
 
-with_lock _do_unregister || log "unregister-session: with_lock returned error"
+if with_lock _do_mark_ended; then
+  log "unregister-session: marked ended sid=$session_id"
+else
+  log "unregister-session: with_lock returned error"
+fi
 
 if [ -n "$SKETCHYBAR_BIN" ] && [ -x "$SKETCHYBAR_BIN" ]; then
   "$SKETCHYBAR_BIN" --trigger claude_done >/dev/null 2>&1 || true

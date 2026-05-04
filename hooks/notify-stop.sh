@@ -74,18 +74,30 @@ _do_close() {
       return 1
     }
 
-  # Inline cleanup: drop sessions whose PID no longer exists.
+  # Inline cleanup: mark sessions whose PID no longer exists as `ended`
+  # (instead of deleting them, so they remain visible in the popup until TTL).
   # We iterate in bash because kill -0 cannot run inside jq.
   if [ -f "$STATE_FILE" ] && jq -e . "$STATE_FILE" >/dev/null 2>&1; then
     local sids
-    sids="$(jq -r '.sessions | keys[]' "$STATE_FILE" 2>/dev/null || echo '')"
+    sids="$(jq -r '
+      .sessions
+      | to_entries[]
+      | select(.value.status == "running" or .value.status == "idle")
+      | .key
+    ' "$STATE_FILE" 2>/dev/null || echo '')"
     local sid pid
     while IFS= read -r sid; do
       [ -z "$sid" ] && continue
       pid="$(jq -r --arg s "$sid" '.sessions[$s].pid // empty' "$STATE_FILE" 2>/dev/null || echo '')"
       if [ -n "$pid" ] && [ "$pid" != "null" ] && [ "$pid" != "0" ]; then
         if ! kill -0 "$pid" 2>/dev/null; then
-          jq_mutate 'del(.sessions[$sid]) | .updated_at = $now' \
+          jq_mutate '
+            if .sessions[$sid] then
+              .sessions[$sid].status = "ended"
+              | .sessions[$sid].ended_at = $now
+              | .updated_at = $now
+            else . end
+          ' \
             --arg sid "$sid" \
             --arg now "$now_iso" || true
         fi
@@ -101,7 +113,7 @@ with_lock _do_close || log "notify-stop: with_lock returned error"
 active=0
 project_label=""
 if [ -f "$STATE_FILE" ] && jq -e . "$STATE_FILE" >/dev/null 2>&1; then
-  active="$(jq '.sessions | length' "$STATE_FILE" 2>/dev/null || echo 0)"
+  active="$(jq '[.sessions[] | select(.status=="running" or .status=="idle")] | length' "$STATE_FILE" 2>/dev/null || echo 0)"
   project_label="$(jq -r --arg sid "$session_id" \
     '.sessions[$sid].project_label // empty' "$STATE_FILE" 2>/dev/null || echo '')"
 fi

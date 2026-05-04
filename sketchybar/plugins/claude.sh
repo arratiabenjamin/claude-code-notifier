@@ -1,34 +1,46 @@
 #!/usr/bin/env bash
-# Refresh of the Claude item: counts active sessions and paints color by state.
+# Refresh of the Claude item: counts active + recently-ended sessions, colors the pill.
 set -u
 
-STATE_FILE="${HOME}/.claude/active-sessions.json"
-CLEANUP="${HOME}/.claude/scripts/notifier/cleanup-sessions.sh"
+STATE_FILE="$HOME/.claude/active-sessions.json"
+CLEANUP="$HOME/.claude/scripts/notifier/cleanup-sessions.sh"
 
-# Sweep zombies before reading (best-effort).
+# Pill colors.
+COLOR_GREY="0xff444444"      # nothing active, nothing recently ended
+COLOR_GREEN="0xff2e7d32"     # one or more active sessions, none currently running
+COLOR_AMBER="0xffe0a800"     # at least one session is currently running
+COLOR_BLUE="0xff2c5aa0"      # only recently-ended sessions, nothing active
+
+# Sweep zombies / purge old ended sessions before reading (best-effort).
 if [ -x "$CLEANUP" ]; then
   "$CLEANUP" >/dev/null 2>&1 || true
 fi
 
-color_grey="0xff666666"
-color_green="0xff44cc44"
-color_yellow="0xffeebb22"
-
 if [ ! -f "$STATE_FILE" ] || ! jq -e . "$STATE_FILE" >/dev/null 2>&1; then
-  sketchybar --set claude label="0" background.color="$color_grey" 2>/dev/null || true
+  sketchybar --set claude label="0 · 0" \
+                          icon="◆" \
+                          background.color="$COLOR_GREY" 2>/dev/null || true
   exit 0
 fi
 
-count="$(jq '.sessions | length' "$STATE_FILE" 2>/dev/null || echo 0)"
+active="$(jq '[.sessions[] | select(.status=="running" or .status=="idle")] | length' "$STATE_FILE" 2>/dev/null || echo 0)"
 running="$(jq '[.sessions[] | select(.status=="running")] | length' "$STATE_FILE" 2>/dev/null || echo 0)"
+ended="$(jq '[.sessions[] | select(.status=="ended")] | length' "$STATE_FILE" 2>/dev/null || echo 0)"
 
 if [ "$running" -gt 0 ]; then
-  color="$color_yellow"
-elif [ "$count" -gt 0 ]; then
-  color="$color_green"
+  color="$COLOR_AMBER"
+elif [ "$active" -gt 0 ]; then
+  color="$COLOR_GREEN"
+elif [ "$ended" -gt 0 ]; then
+  color="$COLOR_BLUE"
 else
-  color="$color_grey"
+  color="$COLOR_GREY"
 fi
 
-sketchybar --set claude label="$count" background.color="$color" 2>/dev/null || true
+# Label format: "ACTIVE · ENDED"  e.g. "2 · 5"
+label="${active} · ${ended}"
+
+sketchybar --set claude label="$label" \
+                        icon="◆" \
+                        background.color="$color" 2>/dev/null || true
 exit 0
