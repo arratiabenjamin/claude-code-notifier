@@ -1,0 +1,8 @@
+.DS_Store
+*.swp
+.idea/
+.vscode/
+*.log
+notifier.log*
+active-sessions.json
+*.broken-*

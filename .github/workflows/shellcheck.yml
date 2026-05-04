@@ -1,0 +1,29 @@
+name: shellcheck
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  shellcheck:
+    name: Lint shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Run shellcheck
+        run: |
+          set -euo pipefail
+          # Find every executable .sh and any sourced lib file.
+          mapfile -t files < <(find . -type f \
+            \( -name '*.sh' -o -name 'sketchybarrc.example' \) \
+            -not -path './.git/*')
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No shell scripts found"; exit 0
+          fi
+          printf '%s\n' "${files[@]}"
+          shellcheck --severity=warning --shell=bash "${files[@]}"

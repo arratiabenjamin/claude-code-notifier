@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Minimal SketchyBar config that adds a Claude Code session indicator.
+#
+# This file is an EXAMPLE. If you already have a sketchybarrc, copy ONLY the
+# `claude_done` event + `claude` item block at the bottom into your own file.
+# The bar / default settings here are sane defaults for users starting fresh.
+
+PLUGIN_DIR="$CONFIG_DIR/plugins"
+
+sketchybar --bar position=top height=32 blur_radius=20 color=0x40000000
+
+sketchybar --default updates=when_shown \
+                    icon.font="SF Pro:Semibold:14.0" \
+                    icon.color=0xffffffff \
+                    label.font="SF Pro:Semibold:13.0" \
+                    label.color=0xffffffff \
+                    padding_left=5 padding_right=5 \
+                    label.padding_left=4 label.padding_right=4 \
+                    icon.padding_left=4 icon.padding_right=4
+
+# Custom event triggered by the notifier hooks.
+sketchybar --add event claude_done
+
+# Claude item (right side of the bar)
+sketchybar --add item claude right \
+           --set claude script="$PLUGIN_DIR/claude.sh" \
+                        update_freq=30 \
+                        click_script="$PLUGIN_DIR/claude_popup.sh" \
+                        icon="◆" \
+                        label="0" \
+                        background.color=0xff44cc44 \
+                        background.corner_radius=6 \
+                        background.height=22 \
+           --subscribe claude claude_done
+
+sketchybar --update
