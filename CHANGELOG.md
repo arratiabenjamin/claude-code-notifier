@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-05-04
+
+### ⚠️ Breaking changes
+- **UI stack changed from SketchyBar to Übersicht.** The widget is now a
+  glass-effect floating panel powered by HTML/CSS/JSX, freely positionable
+  and visually consistent with macOS's native Control Center widgets.
+  Users on v0.2.x must re-run `install.sh` to apply the new widget.
+- `brew install --cask ubersicht` is now a required dependency. Run
+  `brew uninstall sketchybar` if you want to clean up the old dependency.
+
+### Added
+- New widget at `ubersicht/claude-sessions.widget/index.jsx`. Glass effect
+  via `backdrop-filter: blur(28px) saturate(180%)`, rounded corners, soft
+  shadow, segmented "Active" + "Recently completed" sections, animated dot
+  indicators per status (running/idle/ended).
+- Live "X ago" timestamps that update on each refresh (default every 5s).
+
+### Removed
+- The `sketchybar/` directory and all SketchyBar-related code. The legacy
+  v0.2.0 release remains tagged for users who prefer that stack.
+
+### Unchanged
+- Hooks layer (`hooks/`) is identical. It still writes to
+  `~/.claude/active-sessions.json`. The state file is the stable contract
+  between the backend and any UI front-end (Übersicht today, possibly a
+  native Swift app tomorrow).
+
 ## [0.2.0] - 2026-05-04
 
 ### Changed

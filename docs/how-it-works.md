@@ -1,7 +1,7 @@
 # How it works
 
 `claude-code-notifier` is a thin layer of bash scripts wired into Claude Code's
-hook system, plus a SketchyBar item that renders the resulting state.
+hook system, plus an Übersicht widget that renders the resulting state.
 
 ## Lifecycle map
 
@@ -14,12 +14,14 @@ Claude Code emits hook events at well-defined points. We subscribe to four:
 +---------------------+      +-----------------------+      +---------------+      +------------------------+
         |                              |                          |                            |
         v                              v                          v                            v
-   upsert session              status=running, set       status=idle, compute            del sessions[sid]
-   in state file               prompt_started_at         duration, decide notify
+   upsert session              status=running, set       status=idle, compute            mark sessions[sid]
+   in state file               prompt_started_at         duration, decide notify         status=ended
 ```
 
-After every mutation we trigger SketchyBar via `--trigger claude_done`, which
-fires `claude.sh` to refresh the menu bar item.
+Each mutation rewrites `~/.claude/active-sessions.json` atomically. The
+Übersicht widget polls that file every 5 seconds (`refreshFrequency`) and
+re-renders the panel. There is no IPC between the bash layer and the UI —
+the JSON file is the contract.
 
 ## State file schema
 
@@ -37,7 +39,8 @@ Path: `~/.claude/active-sessions.json`
       "project_label": "awesome-app",
       "started_at": "2026-05-04T12:30:00Z",
       "prompt_started_at": "2026-05-04T12:34:00Z",
-      "status": "running" /* or "idle" */,
+      "status": "running", /* or "idle" or "ended" */
+      "ended_at": "2026-05-04T12:35:10Z",
       "last_turn_duration_s": 137,
       "last_turn_finished_at": "2026-05-04T12:34:56Z",
       "last_result": "ok",
@@ -79,7 +82,7 @@ for inspection.
 
 ```
 duration  = now - prompt_started_at  (0 if missing)
-active    = number of sessions in state file after this turn closed
+active    = number of sessions in state file with status in {running, idle}
 
 if duration > THRESHOLD_SECONDS:
     notify(project_label, duration, active)
@@ -98,41 +101,45 @@ Sessions can leak if Claude Code is killed by `SIGKILL` (no `SessionEnd`).
 Two mechanisms catch this:
 
 1. `notify-stop.sh` re-checks every PID after closing the current turn and
-   removes any whose process is gone (`kill -0 <pid>` fails).
-2. `cleanup-sessions.sh` is invoked by `claude.sh` (the SketchyBar plugin
-   refresh script) before reading. So even an idle bar self-heals.
+   transitions any whose process is gone (`kill -0 <pid>` fails) to
+   `status: "ended"`.
+2. `cleanup-sessions.sh` runs on a similar pass and is safe to invoke
+   repeatedly. It honours `CLAUDE_ENDED_TTL` (default `3600`s) when purging
+   long-dead `ended` entries.
 
-## SketchyBar refresh path
+## UI rendering path
 
 ```
-hook event -> sketchybar --trigger claude_done -> claude.sh
-                                                  |
-                                                  v
-                                       cleanup-sessions.sh
-                                                  |
-                                                  v
-                                read sessions, paint:
-                                  running > 0  -> yellow
-                                  count   > 0  -> green
-                                  else         -> grey
+hook event -> writes ~/.claude/active-sessions.json
+                                |
+                                v
+            Übersicht polls every 5s (refreshFrequency)
+                                |
+                                v
+            command: cat "$HOME/.claude/active-sessions.json"
+                                |
+                                v
+            render(): partition into running / idle / ended,
+                      paint glass panel with backdrop-filter blur
 ```
 
-The popup is rebuilt on every click via `claude_popup.sh`, which queries the
-existing popup items, removes them, then iterates the state file and creates
-one item per session.
+The widget is a single self-contained `index.jsx` (no bundler, no external
+imports). It uses Übersicht's built-in JSX runtime and Emotion CSS-in-JS for
+styling. The shell command runs each tick — there is no long-running watcher.
 
-## Why bash
+## Why bash + JSX
 
-There are no daemons, no node, no python. The whole pipeline is sourced bash
-that finishes in milliseconds. The only runtime dependencies are tools you
-already have or want anyway: `jq` for state, `terminal-notifier` for native
-notifications, `sketchybar` for the menu bar item.
+There are no daemons, no node, no python on the backend. The whole hook
+pipeline is sourced bash that finishes in milliseconds. The frontend is a
+single JSX file that runs inside Übersicht's WebKit host. The only runtime
+dependencies are tools you already have or want anyway: `jq` for state,
+`terminal-notifier` for native notifications, Übersicht for the widget.
 
 ## References
 
 - Claude Code hooks reference:
   https://docs.claude.com/en/docs/claude-code/hooks
-- SketchyBar:
-  https://github.com/FelixKratz/SketchyBar
+- Übersicht:
+  https://tracesof.net/uebersicht/
 - terminal-notifier:
   https://github.com/julienXX/terminal-notifier

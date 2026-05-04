@@ -14,24 +14,40 @@
 4. As a last resort, force the AppleScript fallback path (see
    `docs/customization.md > Notification backend`).
 
-## SketchyBar doesn't show up
+## The widget doesn't appear
 
-1. Confirm the service is running:
+1. Confirm Übersicht is running. Look for the eye icon in the menu bar. If
+   it's missing, launch the app:
    ```bash
-   brew services list | grep sketchybar
+   open -a "Übersicht"
    ```
-   If it's not `started`, run `brew services start sketchybar`.
-2. macOS may hide the menu bar in fullscreen apps. Open
-   `System Settings > Control Center > Menu Bar Only > Automatically hide
-   and show the menu bar` and set to `Never` (or `In Full Screen Only`,
-   depending on preference).
-3. If you're on macOS 14+ and using a notch display, SketchyBar items render
-   to the right of the notch — make sure the `claude` item has
-   `right` as its position (default in `sketchybarrc.example`).
-4. Force a refresh:
+2. Click the menu-bar icon and confirm `claude-sessions` is checked under
+   "Widgets". If you don't see it in the list, pick "Open Widgets Folder"
+   and verify that `claude-sessions.widget/index.jsx` is present.
+3. Übersicht renders behind every app. If your desktop is hidden, the widget
+   is hidden too. Use `Mission Control` or `cmd-F3` (Show Desktop) to peek.
+4. The first time you launch Übersicht, macOS may ask for Accessibility
+   and/or Screen Recording permissions. Approve them in
+   `System Settings > Privacy & Security` so the widget can render and
+   refresh smoothly.
+5. To force a reload after editing the widget: click the Übersicht
+   menu-bar icon and choose `Refresh All Widgets`.
+
+## The widget appears but shows no data
+
+1. Verify the state file exists:
    ```bash
-   sketchybar --reload
+   ls -l ~/.claude/active-sessions.json
    ```
+   If it's missing, you haven't run a Claude Code session yet, or the hooks
+   aren't registered. Check `~/.claude/settings.json`.
+2. Open the Übersicht menu-bar icon and pick `Show Console`. Any JSON parse
+   error or shell-command failure will appear there.
+3. Sanity-check the file is valid JSON:
+   ```bash
+   jq . ~/.claude/active-sessions.json
+   ```
+   If `jq` errors, see "State file corrupted" below.
 
 ## "command not found: jq" inside hooks
 
@@ -50,8 +66,7 @@ sudo ln -sf "$(command -v jq)" /usr/local/bin/jq
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 ```
 
-The same applies to `terminal-notifier` and `sketchybar` if hooks log
-"command not found".
+The same applies to `terminal-notifier` if hooks log "command not found".
 
 ## State file corrupted
 
@@ -63,8 +78,9 @@ To force a manual reset:
 
 ```bash
 rm ~/.claude/active-sessions.json
-sketchybar --trigger claude_done    # repaint the bar
 ```
+
+The widget will repaint on its next refresh tick (default 5s).
 
 ## Notifications fire too often
 

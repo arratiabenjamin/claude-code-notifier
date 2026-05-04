@@ -20,15 +20,16 @@ fi
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOOKS_SRC="${REPO_DIR}/hooks"
-SBAR_SRC="${REPO_DIR}/sketchybar"
+WIDGET_SRC="${REPO_DIR}/ubersicht/claude-sessions.widget"
 
 NOTIFIER_DIR="${HOME}/.claude/scripts/notifier"
-SBAR_DIR="${HOME}/.config/sketchybar"
-SBAR_PLUGINS_DIR="${SBAR_DIR}/plugins"
+WIDGETS_DIR="${HOME}/Library/Application Support/Übersicht/widgets"
+WIDGET_DEST="${WIDGETS_DIR}/claude-sessions.widget"
 SETTINGS_FILE="${HOME}/.claude/settings.json"
 
 # ---------- dependencies ----------
-need_brew=()
+need_brew_formulae=()
+need_brew_casks=()
 have() { command -v "$1" >/dev/null 2>&1; }
 
 info "Checking dependencies..."
@@ -39,34 +40,40 @@ if ! have brew; then
 fi
 ok "Homebrew detected"
 
-for tool in jq terminal-notifier sketchybar; do
+# CLI tools (formulae)
+for tool in jq terminal-notifier; do
   if have "$tool"; then
     ok "$tool already installed"
   else
-    need_brew+=("$tool")
+    need_brew_formulae+=("$tool")
   fi
 done
 
-if [ "${#need_brew[@]}" -gt 0 ]; then
-  warn "Missing: ${need_brew[*]}"
+# Übersicht (cask). Detected by app bundle, not by a CLI binary.
+if [ -d "/Applications/Übersicht.app" ] || [ -d "${HOME}/Applications/Übersicht.app" ]; then
+  ok "Übersicht already installed"
+else
+  need_brew_casks+=("ubersicht")
+fi
+
+if [ "${#need_brew_formulae[@]}" -gt 0 ] || [ "${#need_brew_casks[@]}" -gt 0 ]; then
+  warn "Missing: ${need_brew_formulae[*]:-} ${need_brew_casks[*]:-}"
   printf "Install via Homebrew now? [Y/n] "
   read -r answer
   if [[ "${answer:-Y}" =~ ^[Yy]?$ ]]; then
-    for pkg in "${need_brew[@]}"; do
+    for pkg in "${need_brew_formulae[@]}"; do
       info "Installing $pkg..."
-      if [ "$pkg" = "sketchybar" ]; then
-        brew tap FelixKratz/formulae 2>/dev/null || true
-      fi
       brew install "$pkg"
+    done
+    for cask in "${need_brew_casks[@]}"; do
+      info "Installing $cask (cask)..."
+      brew install --cask "$cask"
     done
   else
     fail "Aborting. Install missing dependencies and re-run."
     exit 1
   fi
 fi
-
-# Optional but recommended: SF Pro font fallback (sketchybar config uses it).
-# We don't fail if the font isn't installed; users can swap it via customization.
 
 # ---------- copy hooks ----------
 info "Installing hooks to ${NOTIFIER_DIR}"
@@ -84,24 +91,13 @@ for f in json-helpers.sh notify.sh; do
 done
 ok "Hooks installed"
 
-# ---------- copy sketchybar plugins ----------
-info "Installing SketchyBar plugins to ${SBAR_PLUGINS_DIR}"
-mkdir -p "${SBAR_PLUGINS_DIR}"
-cp "${SBAR_SRC}/plugins/claude.sh"       "${SBAR_PLUGINS_DIR}/claude.sh"
-cp "${SBAR_SRC}/plugins/claude_popup.sh" "${SBAR_PLUGINS_DIR}/claude_popup.sh"
-chmod +x "${SBAR_PLUGINS_DIR}/claude.sh" "${SBAR_PLUGINS_DIR}/claude_popup.sh"
-ok "Plugins installed"
-
-# Install or augment sketchybarrc.
-if [ ! -f "${SBAR_DIR}/sketchybarrc" ]; then
-  info "No existing sketchybarrc — installing the example config"
-  cp "${SBAR_SRC}/sketchybarrc.example" "${SBAR_DIR}/sketchybarrc"
-  chmod +x "${SBAR_DIR}/sketchybarrc"
-  ok "sketchybarrc installed"
-else
-  warn "Existing sketchybarrc found at ${SBAR_DIR}/sketchybarrc"
-  warn "Add the 'claude_done' event + 'claude' item from sketchybar/sketchybarrc.example manually."
-fi
+# ---------- copy Übersicht widget ----------
+info "Installing Übersicht widget to ${WIDGET_DEST}"
+mkdir -p "${WIDGETS_DIR}"
+mkdir -p "${WIDGET_DEST}"
+cp "${WIDGET_SRC}/index.jsx" "${WIDGET_DEST}/index.jsx"
+chmod 0644 "${WIDGET_DEST}/index.jsx"
+ok "Widget installed"
 
 # ---------- merge hooks into settings.json ----------
 info "Registering hooks in ${SETTINGS_FILE}"
@@ -171,15 +167,12 @@ else
   fi
 fi
 
-# ---------- start sketchybar ----------
-info "Starting SketchyBar..."
-if brew services list 2>/dev/null | grep -qE '^sketchybar\s+(started|running)'; then
-  ok "SketchyBar already running"
-  brew services restart sketchybar >/dev/null 2>&1 || true
-  ok "SketchyBar restarted to pick up new config"
+# ---------- start Übersicht ----------
+info "Launching Übersicht..."
+if open -a "Übersicht" 2>/dev/null; then
+  ok "Übersicht launched (or already running)"
 else
-  brew services start sketchybar >/dev/null 2>&1 || warn "Could not start sketchybar via brew services"
-  ok "SketchyBar started"
+  warn "Could not launch Übersicht via 'open -a'. Start it manually from /Applications."
 fi
 
 # ---------- final notes ----------
@@ -194,20 +187,26 @@ Next steps:
        System Settings > Notifications > terminal-notifier
      and set Allow Notifications = on.
 
-  2. Open a new Claude Code session. After the first prompt finishes, the
-     SketchyBar item will turn green and show the session count. Long tasks
-     (> 90s) or simultaneous sessions will trigger a macOS notification.
+  2. Übersicht runs as a menu-bar app (look for the eye icon). Click it and
+     make sure 'claude-sessions' is enabled under "Widgets". The panel
+     appears at top:36px / left:20px by default — tweak these values in
+     ${WIDGET_DEST}/index.jsx if you want a different position.
+     Übersicht hot-reloads the widget on file save.
 
-  3. Tweak the threshold by exporting CLAUDE_NOTIFY_THRESHOLD before launching
+  3. Open a new Claude Code session. The widget reads
+     ~/.claude/active-sessions.json every 5s and updates the panel. Long
+     turns (> 90s) and concurrent sessions also fire a macOS notification.
+
+  4. Tweak the threshold by exporting CLAUDE_NOTIFY_THRESHOLD before launching
      Claude Code, e.g. in your shell rc:
        export CLAUDE_NOTIFY_THRESHOLD=120
 
-  4. Pause notifications anytime:
+  5. Pause notifications anytime:
        touch ~/.claude/notifier-disabled
      Re-enable:
        rm ~/.claude/notifier-disabled
 
-  5. Logs live at ~/.claude/scripts/notifier/notifier.log
+  6. Logs live at ~/.claude/scripts/notifier/notifier.log
 
 Enjoy!
 EOF
